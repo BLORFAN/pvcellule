@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Du photon à l'électron</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111b2e; --line:#24324d;
+    --fg:#e7ecf5; --muted:#93a1ba;
+    --sun:#ffc83d; --electron:#4fb3ff; --hole:#ff6b6b; --current:#ff9f43;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:"Segoe UI",system-ui,sans-serif;line-height:1.5}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px 16px 40px;display:grid;gap:14px}
+  h1{margin:0;font-size:clamp(1.5rem,3.5vw,2.2rem)}
+  .box{overflow-x:auto;border-radius:12px;background:#070c17;border:1px solid var(--line)}
+  canvas{display:block;width:100%;min-width:600px;height:auto}
+  .caption{background:var(--panel);border-left:4px solid var(--sun);border-radius:0 10px 10px 0;padding:12px 16px;font-size:1.08rem;min-height:3.4em}
+  .caption b{color:var(--sun);font-family:Consolas,monospace;margin-right:6px}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  button{font:600 .95rem inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+  button.main{background:var(--sun);border-color:var(--sun);color:#1b1400}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--electron);outline-offset:2px}
+  label{color:var(--muted);font-size:.9rem;display:flex;gap:8px;align-items:center}
+  .timeline{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+  .timeline div{height:100%;width:0;background:var(--sun)}
+  ol{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+  li{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:.85rem;color:var(--muted);transition:all .3s}
+  li span{display:block;font-family:Consolas,monospace;font-size:.75rem}
+  li.on{border-color:var(--sun);color:var(--fg);background:var(--panel)}
+  .series{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;display:grid;gap:6px}
+  .series h2{margin:0;font-size:1.1rem}
+  .series p{margin:0;color:var(--muted)}
+  .series .chain{font-family:Consolas,monospace;color:var(--fg);font-size:.95rem}
+  .credit{margin-top:18px;padding-top:12px;border-top:1px solid var(--line);text-align:center;color:var(--muted);font-family:Consolas,monospace;font-size:.95rem;letter-spacing:.08em}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;font-size:.9rem;color:var(--muted)}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Du photon à l'électron, et retour dans la cellule</h1>
+  <div class="legend">
+    <span><i style="background:var(--sun)"></i>Photon</span>
+    <span><i style="background:var(--electron)"></i>Électron (−)</span>
+    <span><i style="border:2px solid var(--hole)"></i>Trou (+)</span>
+    <span><i style="background:var(--current);border-radius:2px"></i>Sens conventionnel du courant I</span>
+  </div>
+
+  <div class="box"><canvas id="cv" width="1000" height="620" aria-label="Animation : un photon libère un électron dans la cellule ; l'électron parcourt le circuit en série (borne −, lampe, ampèremètre, borne +) et revient dans la cellule"></canvas></div>
+  <div class="timeline"><div id="prog"></div></div>
+  <div class="caption" id="cap" aria-live="polite"></div>
+
+  <div class="bar">
+    <button id="play" class="main" type="button">Pause</button>
+    <button id="restart" type="button">Recommencer</button>
+    <button id="switch" type="button">Ouvrir l'interrupteur</button>
+    <label for="speed">Vitesse <input id="speed" type="range" min="0.25" max="2" step="0.25" value="1"></label>
+  </div>
+
+  <ol id="steps">
+    <li><span>1</span>Le photon arrive</li>
+    <li><span>2</span>L'électron se libère</li>
+    <li><span>3</span>La jonction le pousse</li>
+    <li><span>4</span>La grille le collecte</li>
+    <li><span>5</span>Lampe en série</li>
+    <li><span>6</span>Retour à la borne +</li>
+    <li><span>7</span>Le trou est comblé</li>
+  </ol>
+
+  <div class="series">
+    <h2>Un circuit en série</h2>
+    <p class="chain">Cellule (borne −) → interrupteur → lampe → ampèremètre → cellule (borne +)</p>
+    <p>Il n'y a qu'une seule boucle : les électrons traversent tous les dipôles l'un après l'autre. L'intensité du courant est donc la même partout dans le circuit. Si on ouvre l'interrupteur, la boucle est coupée : plus de courant, la lampe s'éteint.</p>
+  </div>
+
+  <footer class="credit">M.BLORFAN 2009/2026</footer>
+</div>
+
+<script>
+(() => {
+"use strict";
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const W = 1000, H = 620;
+const C = { sun:"#ffc83d", e:"#4fb3ff", h:"#ff6b6b", fg:"#e7ecf5", silver:"#c9d1dd", muted:"#93a1ba", I:"#ff9f43" };
+
+// ---- Géométrie de la cellule (vue en coupe) ----
+const X0 = 70, X1 = 780;
+const Y = { glass:120, arc:140, n:148, dep:250, junc:270, p:290, back:460, end:480 };
+const FINGERS = [140, 270, 400, 530, 660];
+
+// ---- Circuit extérieur en série ----
+const BUS = 90;                              // barre collectrice (face avant)
+const NEG = { x:780, y:BUS };                // borne −
+const SW  = { x:840, y:BUS };                // interrupteur
+const CX  = 920;                             // fil vertical de droite
+const BULB = { x:CX, y:240, r:28 };          // lampe
+const AM   = { x:CX, y:400, r:24 };          // ampèremètre
+const BOT = 560;                             // fil du bas
+const POS = { x:450, y:510 };                // borne + (sous le contact arrière)
+
+// Atome de silicium "A" et sa liaison avec "B" : c'est là que le photon frappe
+const A = { x:395, y:373 }, B = { x:425, y:373 };
+const HIT = { x:410, y:373 };
+
+// ---- Chronologie d'un cycle (en secondes) ----
+const CYCLE = 15;
+const photonPath = { from:{x:70,y:50}, to:HIT, t0:0, t1:2.5 };
+const ePath = [ // [temps, x, y]
+  [4.0,410,373],[4.8,406,330],[5.3,402,295],[5.7,400,232],[6.4,400,178],[6.8,400,150],
+  [7.2,400,BUS],[7.9,NEG.x,BUS],[8.3,CX,BUS],
+  [8.8,CX,BULB.y-BULB.r],[9.4,CX,BULB.y+BULB.r],          // dans la lampe
+  [9.9,CX,AM.y-AM.r],[10.3,CX,AM.y+AM.r],                 // dans l'ampèremètre
+  [10.8,CX,BOT],[11.6,POS.x,BOT],[11.9,POS.x,POS.y],      // vers la borne +
+  [12.2,POS.x,Y.end],[12.7,440,445]                       // rentre dans la zone P
+];
+const hPath = [[4.0,410,373],[5.5,425,410],[7.0,440,445]];
+
+const STEPS = [
+  [0,   2.5, "Un photon de lumière quitte le soleil, traverse le verre et la couche antireflet, puis pénètre dans le silicium."],
+  [2.5, 4.0, "Le photon cède toute son énergie à un électron lié entre deux atomes de silicium. La liaison casse : l'électron devient libre et laisse un trou (+)."],
+  [4.0, 6.8, "Le champ électrique de la jonction P‑N pousse l'électron vers la zone N (en haut) et le trou vers la zone P (en bas)."],
+  [6.8, 8.8, "La grille d'argent collecte l'électron. Il sort de la cellule par la borne − et passe l'interrupteur fermé."],
+  [8.8, 10.8,"L'électron traverse la lampe, branchée en série : elle s'allume. Il passe ensuite dans l'ampèremètre, qui mesure le courant."],
+  [10.8,12.7,"Le fil le ramène à la borne + : l'électron rentre dans la cellule par le contact arrière en aluminium."],
+  [12.7,CYCLE,"L'électron comble le trou : la liaison du silicium est réparée. La boucle est fermée, la cellule est prête pour le photon suivant."]
+];
+
+// ---- Chemin du circuit (pour le flux continu d'électrons) ----
+const LOOP = [[NEG.x,BUS],[CX,BUS],[CX,BOT],[POS.x,BOT],[POS.x,POS.y]];
+const segs = []; let loopLen = 0;
+for (let i=0;i<LOOP.length-1;i++){ const [x1,y1]=LOOP[i],[x2,y2]=LOOP[i+1]; const l=Math.hypot(x2-x1,y2-y1); segs.push({x1,y1,x2,y2,l,s:loopLen}); loopLen+=l; }
+function pointOnLoop(d){
+  d = ((d % loopLen) + loopLen) % loopLen;
+  for (const s of segs) if (d <= s.s + s.l){ const k=(d-s.s)/s.l; return {x:s.x1+(s.x2-s.x1)*k, y:s.y1+(s.y2-s.y1)*k}; }
+  return {x:LOOP[0][0], y:LOOP[0][1]};
+}
+
+// ---- Outils ----
+const lerp = (a,b,t) => a + (b-a)*t;
+const ease = t => t<.5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2;
+function along(path, t){
+  if (t <= path[0][0]) return { x:path[0][1], y:path[0][2] };
+  for (let i=0;i<path.length-1;i++){
+    const [ta,xa,ya] = path[i], [tb,xb,yb] = path[i+1];
+    if (t <= tb){ const k = (t-ta)/(tb-ta); return { x:lerp(xa,xb,k), y:lerp(ya,yb,k) }; }
+  }
+  const l = path[path.length-1]; return { x:l[1], y:l[2] };
+}
+function label(text, x, y, color, bg, align){
+  ctx.font = "12px Consolas, monospace";
+  const w = ctx.measureText(text).width;
+  const lx = align === "center" ? x - w/2 : x;
+  if (bg !== "none"){ ctx.fillStyle = bg || "rgba(7,12,23,.78)"; ctx.fillRect(lx-4, y-13, w+8, 18); }
+  ctx.fillStyle = color || C.fg; ctx.fillText(text, lx, y);
+}
+function arrow(x1,y1,x2,y2,color){
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const a = Math.atan2(y2-y1,x2-x1);
+  ctx.beginPath(); ctx.moveTo(x2,y2); ctx.lineTo(x2-9*Math.cos(a-.45),y2-9*Math.sin(a-.45)); ctx.lineTo(x2-9*Math.cos(a+.45),y2-9*Math.sin(a+.45)); ctx.fill();
+}
+
+// Réseau d'atomes de silicium
+const atoms = [];
+for (let y = 163; y < Y.back; y += 30) for (let x = 95; x < X1; x += 30) atoms.push({x,y});
+
+// ---- Dessin de la cellule ----
+function drawCell(bondBroken, repaired){
+  const sky = ctx.createLinearGradient(0,0,0,Y.glass); sky.addColorStop(0,"#0d1a33"); sky.addColorStop(1,"#0a1324");
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,Y.glass);
+  const sg = ctx.createRadialGradient(70,50,4,70,50,75);
+  sg.addColorStop(0,"rgba(255,220,110,1)"); sg.addColorStop(.35,"rgba(255,200,61,.5)"); sg.addColorStop(1,"rgba(255,200,61,0)");
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(70,50,75,0,7); ctx.fill();
+  ctx.fillStyle = "#ffd75e"; ctx.beginPath(); ctx.arc(70,50,24,0,7); ctx.fill();
+
+  ctx.fillStyle = "rgba(170,200,235,.16)"; ctx.fillRect(X0,Y.glass,X1-X0,Y.arc-Y.glass);
+  ctx.fillStyle = "#2e5aa8"; ctx.fillRect(X0,Y.arc,X1-X0,Y.n-Y.arc);
+  ctx.fillStyle = "#1f3669"; ctx.fillRect(X0,Y.n,X1-X0,Y.dep-Y.n);
+  ctx.fillStyle = "#33305a"; ctx.fillRect(X0,Y.dep,X1-X0,Y.junc-Y.dep);
+  ctx.fillStyle = "#3d2c4e"; ctx.fillRect(X0,Y.junc,X1-X0,Y.p-Y.junc);
+  ctx.fillStyle = "#402636"; ctx.fillRect(X0,Y.p,X1-X0,Y.back-Y.p);
+  const g = ctx.createLinearGradient(0,Y.back,0,Y.end); g.addColorStop(0,"#b9c1cc"); g.addColorStop(1,"#7f8894");
+  ctx.fillStyle = g; ctx.fillRect(X0,Y.back,X1-X0,Y.end-Y.back);
+
+  ctx.strokeStyle = "rgba(200,215,240,.10)"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (const a of atoms){
+    if (a.x+30 < X1) { ctx.moveTo(a.x+5,a.y); ctx.lineTo(a.x+25,a.y); }
+    if (a.y+30 < Y.back) { ctx.moveTo(a.x,a.y+5); ctx.lineTo(a.x,a.y+25); }
+  }
+  ctx.stroke();
+  ctx.fillStyle = "rgba(200,215,240,.22)";
+  for (const a of atoms){ ctx.beginPath(); ctx.arc(a.x,a.y,4,0,7); ctx.fill(); }
+
+  for (const a of [A,B]){
+    ctx.fillStyle = "#6d82ad"; ctx.beginPath(); ctx.arc(a.x,a.y,8,0,7); ctx.fill();
+    ctx.fillStyle = C.fg; ctx.font = "bold 8px sans-serif"; ctx.textAlign = "center"; ctx.fillText("Si", a.x, a.y+3); ctx.textAlign = "left";
+  }
+  ctx.strokeStyle = bondBroken && !repaired ? C.h : "rgba(200,215,240,.6)";
+  ctx.lineWidth = 2; if (bondBroken && !repaired) ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(A.x+8,A.y); ctx.lineTo(B.x-8,B.y); ctx.stroke(); ctx.setLineDash([]);
+
+  ctx.font = "bold 12px Consolas, monospace"; ctx.textAlign = "center";
+  for (let x = X0+25; x < X1-190; x += 38){
+    ctx.fillStyle = "rgba(255,140,140,.55)"; ctx.fillText("+", x, Y.dep+14);
+    ctx.fillStyle = "rgba(120,190,255,.55)"; ctx.fillText("−", x+19, Y.junc+14);
+  }
+  ctx.textAlign = "left";
+  ctx.strokeStyle = C.sun; ctx.fillStyle = C.sun; ctx.lineWidth = 2;
+  for (const x of [630,690,750]){
+    ctx.beginPath(); ctx.moveTo(x,Y.dep+4); ctx.lineTo(x,Y.p-8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x-5,Y.p-12); ctx.lineTo(x,Y.p-4); ctx.lineTo(x+5,Y.p-12); ctx.fill();
+  }
+}
+
+// ---- Dessin du circuit en série ----
+function drawCircuit(closed){
+  ctx.strokeStyle = C.silver; ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.beginPath();
+  // doigts → barre collectrice → borne −
+  for (const fx of FINGERS){ ctx.moveTo(fx,Y.arc-4); ctx.lineTo(fx,BUS); }
+  ctx.moveTo(FINGERS[0],BUS); ctx.lineTo(NEG.x,BUS);
+  // borne − → interrupteur
+  ctx.moveTo(NEG.x,BUS); ctx.lineTo(SW.x-18,BUS);
+  // interrupteur → lampe
+  ctx.moveTo(SW.x+18,BUS); ctx.lineTo(CX,BUS); ctx.lineTo(CX,BULB.y-BULB.r);
+  // lampe → ampèremètre
+  ctx.moveTo(CX,BULB.y+BULB.r+6); ctx.lineTo(CX,AM.y-AM.r);
+  // ampèremètre → borne +
+  ctx.moveTo(CX,AM.y+AM.r); ctx.lineTo(CX,BOT); ctx.lineTo(POS.x,BOT); ctx.lineTo(POS.x,POS.y);
+  // borne + → contact arrière
+  ctx.moveTo(POS.x,POS.y); ctx.lineTo(POS.x,Y.end);
+  ctx.stroke();
+  ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(FINGERS[0],BUS); ctx.lineTo(NEG.x-10,BUS); ctx.stroke();
+
+  ctx.fillStyle = "#e3e8ef"; for (const fx of FINGERS) ctx.fillRect(fx-6,Y.arc-6,12,14);
+
+  // interrupteur
+  ctx.fillStyle = C.silver;
+  ctx.beginPath(); ctx.arc(SW.x-18,BUS,4,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(SW.x+18,BUS,4,0,7); ctx.fill();
+  ctx.strokeStyle = closed ? C.silver : C.h; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(SW.x-18,BUS);
+  closed ? ctx.lineTo(SW.x+18,BUS-1) : ctx.lineTo(SW.x+12,BUS-24);
+  ctx.stroke();
+
+  // bornes
+  ctx.fillStyle = "#1a1f2b"; ctx.strokeStyle = C.e; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(NEG.x,NEG.y,10,0,7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.e; ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center"; ctx.fillText("−", NEG.x, NEG.y+5);
+  ctx.fillStyle = "#1a1f2b"; ctx.strokeStyle = C.h;
+  ctx.beginPath(); ctx.arc(POS.x,POS.y,10,0,7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.h; ctx.fillText("+", POS.x, POS.y+5); ctx.textAlign = "left";
+}
+
+function drawBulb(glow){
+  const {x,y,r} = BULB;
+  if (glow > .02){
+    const bg = ctx.createRadialGradient(x,y,4,x,y,r*3.4);
+    bg.addColorStop(0,`rgba(255,214,90,${.8*glow})`); bg.addColorStop(1,"rgba(255,214,90,0)");
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(x,y,r*3.4,0,7); ctx.fill();
+  }
+  // culot
+  ctx.fillStyle = "#8b94a3"; ctx.fillRect(x-10, y+r-6, 20, 14);
+  ctx.strokeStyle = "#5c6573"; ctx.lineWidth = 1;
+  for (let i=0;i<3;i++){ ctx.beginPath(); ctx.moveTo(x-10,y+r-2+i*4); ctx.lineTo(x+10,y+r-2+i*4); ctx.stroke(); }
+  // ampoule
+  ctx.fillStyle = `rgba(${Math.round(55+200*glow)},${Math.round(60+165*glow)},${Math.round(72+20*glow)},.95)`;
+  ctx.strokeStyle = C.silver; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); ctx.stroke();
+  // filament
+  ctx.strokeStyle = glow > .1 ? "#fff6d0" : "#8a8f99"; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(x-6,y+r-6); ctx.lineTo(x-9,y+4); ctx.lineTo(x-4,y-8); ctx.lineTo(x,y+2); ctx.lineTo(x+4,y-8); ctx.lineTo(x+9,y+4); ctx.lineTo(x+6,y+r-6); ctx.stroke();
+}
+
+function drawAmmeter(I){
+  const {x,y,r} = AM;
+  ctx.fillStyle = "#eef1f5"; ctx.strokeStyle = C.silver; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); ctx.stroke();
+  // cadran
+  ctx.strokeStyle = "#5c6573"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x,y+6,r-7,Math.PI*1.15,Math.PI*1.85); ctx.stroke();
+  const a = Math.PI*1.15 + (Math.PI*0.7)*Math.min(1, I/0.6);
+  ctx.strokeStyle = "#d03a3a"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x,y+6); ctx.lineTo(x+Math.cos(a)*(r-6), y+6+Math.sin(a)*(r-6)); ctx.stroke();
+  ctx.fillStyle = "#1a1f2b"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillText("A", x, y+16); ctx.textAlign = "left";
+}
+
+function drawLabels(I){
+  label("Soleil", 104, 32, C.sun);
+  label("Verre + antireflet", X0+8, Y.glass+16);
+  label("Zone N (phosphore)", X0+8, Y.n+26);
+  label("Jonction P‑N · champ E", X0+440, Y.junc+5, C.sun);
+  label("Zone P (bore)", X0+8, Y.p+28);
+  label("Contact arrière (aluminium)", X0+8, Y.back+15, "#0b1220", "none");
+  label("Barre collectrice (argent)", FINGERS[1]+12, BUS-10);
+  label("borne −", NEG.x, NEG.y-18, C.e, null, "center");
+  label("interrupteur", SW.x, BUS+30, C.muted, null, "center");
+  label("Lampe", CX-r(BULB)-62, BULB.y+4, C.fg);
+  label("Ampèremètre", CX-44, AM.y+AM.r+18, C.fg);
+  label(`I = ${I.toFixed(2).replace(".",",")} A`, CX-44, AM.y-AM.r-10, C.I);
+  label("borne +", POS.x+16, POS.y+5, C.h);
+}
+const r = o => o.r;
+
+// Flèches du sens des charges
+function drawDirections(closed){
+  if (!closed) return;
+  // électrons : borne − → lampe → borne +
+  arrow(855,BUS-16,895,BUS-16,C.e);   label("e⁻", 860, BUS-24, C.e, "none");
+  arrow(700,BOT+16,640,BOT+16,C.e);   label("e⁻", 705, BOT+20, C.e, "none");
+  // courant conventionnel : sens inverse
+  arrow(CX+18,AM.y+80,CX+18,AM.y+40,C.I); label("I", CX+26, AM.y+66, C.I, "none");
+  arrow(580,BOT-14,640,BOT-14,C.I);  label("I", 560, BOT-10, C.I, "none");
+}
+
+// Schéma normalisé (en bas à gauche)
+function drawSchema(closed){
+  const x0 = 70, y0 = 500, w = 330, h = 105;
+  ctx.fillStyle = "rgba(17,27,46,.95)"; ctx.strokeStyle = "#24324d"; ctx.lineWidth = 1;
+  ctx.fillRect(x0,y0,w,h); ctx.strokeRect(x0,y0,w,h);
+  label("Schéma normalisé (série)", x0+10, y0+18, C.muted, "none");
+  const L = x0+40, R = x0+w-40, T = y0+38, Bt = y0+h-14;
+  ctx.strokeStyle = C.silver; ctx.lineWidth = 2;
+  // générateur (cellule) à gauche
+  const gy = (T+Bt)/2;
+  ctx.beginPath(); ctx.moveTo(L,T); ctx.lineTo(L,gy-14); ctx.moveTo(L,gy+14); ctx.lineTo(L,Bt); ctx.stroke();
+  ctx.beginPath(); ctx.arc(L,gy,14,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(L-14,gy); ctx.lineTo(L+14,gy); ctx.stroke();
+  ctx.fillStyle = C.sun; arrow(L-34,gy-24,L-18,gy-10,C.sun); arrow(L-34,gy-6,L-18,gy+4,C.sun);
+  ctx.font = "bold 11px sans-serif"; ctx.fillStyle = C.e; ctx.fillText("−", L+6, gy-16); ctx.fillStyle = C.h; ctx.fillText("+", L+6, gy+24);
+  // fil du haut : interrupteur puis lampe
+  const sx = L+60, lx = L+150;
+  ctx.strokeStyle = C.silver;
+  ctx.beginPath(); ctx.moveTo(L,T); ctx.lineTo(sx-10,T); ctx.moveTo(sx+10,T); ctx.lineTo(lx-12,T); ctx.moveTo(lx+12,T); ctx.lineTo(R,T); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(sx-10,T); closed ? ctx.lineTo(sx+10,T) : ctx.lineTo(sx+7,T-12); ctx.stroke();
+  ctx.beginPath(); ctx.arc(lx,T,12,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(lx-8,T-8); ctx.lineTo(lx+8,T+8); ctx.moveTo(lx+8,T-8); ctx.lineTo(lx-8,T+8); ctx.stroke();
+  // côté droit : ampèremètre
+  ctx.beginPath(); ctx.moveTo(R,T); ctx.lineTo(R,gy-11); ctx.moveTo(R,gy+11); ctx.lineTo(R,Bt); ctx.lineTo(L,Bt); ctx.stroke();
+  ctx.beginPath(); ctx.arc(R,gy,11,0,7); ctx.stroke();
+  ctx.fillStyle = C.fg; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center"; ctx.fillText("A", R, gy+4); ctx.textAlign = "left";
+  ctx.font = "10px Consolas, monospace"; ctx.fillStyle = C.muted;
+  ctx.fillText("K", sx-3, T+16); ctx.fillText("L", lx-3, T+26); ctx.fillText("A", R+16, gy+4);
+}
+
+// ---- Éléments animés ----
+function drawPhoton(t){
+  const {from,to,t0,t1} = photonPath;
+  if (t < t0 || t > t1) return;
+  const k = ease((t-t0)/(t1-t0));
+  const x = lerp(from.x,to.x,k), y = lerp(from.y,to.y,k);
+  const dx = to.x-from.x, dy = to.y-from.y, L = Math.hypot(dx,dy), ux = dx/L, uy = dy/L, nx = -uy, ny = ux;
+  ctx.strokeStyle = C.sun; ctx.lineWidth = 3;
+  ctx.beginPath();
+  for (let s=0; s<=70; s+=2){
+    const off = Math.sin((s - t*120)/14*Math.PI*2)*6*(1-s/90);
+    const px = x - ux*s + nx*off, py = y - uy*s + ny*off;
+    s===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+  }
+  ctx.stroke();
+  const hg = ctx.createRadialGradient(x,y,0,x,y,16); hg.addColorStop(0,"rgba(255,220,110,.9)"); hg.addColorStop(1,"rgba(255,220,110,0)");
+  ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(x,y,16,0,7); ctx.fill();
+  label("photon  hν", x+16, y-12, C.sun);
+}
+
+function drawFlash(x, y, t, t0, dur, color){
+  if (t < t0 || t > t0+dur) return;
+  const k = (t-t0)/dur;
+  ctx.strokeStyle = color; ctx.globalAlpha = 1-k; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(x,y,6+k*40,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,y,3+k*22,0,7); ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+const trail = [];
+function drawElectron(p, bright){
+  const rr = bright ? 7 : 5;
+  if (bright){
+    const g = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,18); g.addColorStop(0,"rgba(79,179,255,.7)"); g.addColorStop(1,"rgba(79,179,255,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x,p.y,18,0,7); ctx.fill();
+  }
+  ctx.fillStyle = bright ? C.e : "rgba(79,179,255,.6)";
+  ctx.beginPath(); ctx.arc(p.x,p.y,rr,0,7); ctx.fill();
+  ctx.fillStyle = "#0b1220"; ctx.font = "bold 10px sans-serif"; ctx.textAlign = "center"; ctx.fillText("−", p.x, p.y+3.5); ctx.textAlign = "left";
+}
+function drawHole(p, alpha){
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = C.h; ctx.lineWidth = 2.5; ctx.fillStyle = "rgba(255,107,107,.18)";
+  ctx.beginPath(); ctx.arc(p.x,p.y,8,0,7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.h; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center"; ctx.fillText("+", p.x, p.y+4); ctx.textAlign = "left";
+  ctx.globalAlpha = 1;
+}
+
+// Flux continu : les autres électrons du circuit (le courant est partout le même)
+function drawFlow(offset){
+  ctx.fillStyle = "rgba(79,179,255,.45)";
+  for (let d = 0; d < loopLen; d += 34){
+    const p = pointOnLoop(d + offset);
+    if (Math.hypot(p.x-BULB.x,p.y-BULB.y) < BULB.r+2 || Math.hypot(p.x-AM.x,p.y-AM.y) < AM.r+2) continue;
+    ctx.beginPath(); ctx.arc(p.x,p.y,3,0,7); ctx.fill();
+  }
+}
+
+// ---- Boucle principale ----
+let t = 0, running = true, speed = 1, last = performance.now(), lastStep = -1;
+let closed = true, flowOffset = 0, current = 0.45;
+const cap = document.getElementById("cap"), prog = document.getElementById("prog");
+const lis = [...document.querySelectorAll("#steps li")];
+
+function render(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = "#070c17"; ctx.fillRect(0,0,W,H);
+  const broken = t >= 2.5, repaired = t >= 13.0;
+  drawCell(broken, repaired);
+  drawCircuit(closed);
+  drawSchema(closed);
+  if (closed) drawFlow(flowOffset);
+
+  // lampe : éclairée en continu par le courant, plus vive quand "notre" électron la traverse
+  let pulse = 0;
+  if (closed){
+    if (t >= 8.8 && t <= 9.4) pulse = (t-8.8)/0.6;
+    else if (t > 9.4) pulse = Math.max(0, 1 - (t-9.4)/1.2);
+  }
+  drawBulb(closed ? Math.min(1, 0.55 + 0.45*pulse) : 0);
+  drawAmmeter(current);
+  drawDirections(closed);
+  drawLabels(current);
+
+  drawPhoton(t);
+  drawFlash(HIT.x, HIT.y, t, 2.5, 1.0, C.sun);
+
+  // électron suivi
+  let ep;
+  if (t < 2.5) ep = HIT;
+  else if (t < 4.0){
+    const k = ease((t-2.5)/1.5);
+    ep = { x: HIT.x + Math.sin(k*Math.PI)*14, y: HIT.y - Math.sin(k*Math.PI)*22 };
+  } else ep = along(ePath, Math.min(t,12.7));
+  if (t < 13.0){
+    if (t >= 2.5){ trail.push({x:ep.x,y:ep.y}); if (trail.length > 26) trail.shift(); }
+    ctx.fillStyle = "rgba(79,179,255,.25)";
+    trail.forEach((p,i)=>{ ctx.beginPath(); ctx.arc(p.x,p.y,1+i/8,0,7); ctx.fill(); });
+    drawElectron(ep, t >= 2.5);
+    ctx.strokeStyle = C.fg; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(ep.x,ep.y,13,0,7); ctx.stroke();
+    if (t < 2.5) label("électron lié", HIT.x+12, HIT.y+24, C.e);
+    else if (t < 4.0) label("électron libre !", ep.x+14, ep.y-12, C.e);
+  }
+
+  // trou
+  if (t >= 2.5 && t < 13.8){
+    const hp = t < 4 ? HIT : along(hPath, t);
+    drawHole(hp, t > 13.0 ? Math.max(0, 1-(t-13.0)/0.8) : 1);
+    if (t < 4.0) label("trou", hp.x+12, hp.y+24, C.h);
+  }
+  drawFlash(440,445,t,12.7,1.2,C.e);
+  if (t >= 13.0) label("liaison réparée ✓", 456, 430, "#7ee08a");
+
+  if (!closed){
+    label("Interrupteur ouvert : circuit coupé, aucun courant", 470, 40, C.h);
+  }
+
+  const step = STEPS.findIndex(s => t >= s[0] && t < s[1]);
+  if (step !== lastStep && step >= 0){
+    lastStep = step;
+    cap.innerHTML = `<b>${step+1}/7</b>${STEPS[step][2]}`;
+    lis.forEach((li,i)=>li.classList.toggle("on", i===step));
+  }
+  prog.style.width = (t/CYCLE*100).toFixed(1) + "%";
+}
+
+function frame(now){
+  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  if (running){
+    // circuit ouvert : l'électron suivi s'arrête avant l'interrupteur
+    const blocked = !closed && t >= 7.6 && t < 12.7;
+    if (!blocked) t += dt*speed;
+    if (closed) flowOffset += dt*speed*55;
+    if (t >= CYCLE){ t = 0; trail.length = 0; }
+  }
+  current += ((closed ? 0.45 : 0) - current) * 0.08;
+  render();
+  requestAnimationFrame(frame);
+}
+
+const playBtn = document.getElementById("play");
+const swBtn = document.getElementById("switch");
+playBtn.addEventListener("click", () => { running = !running; playBtn.textContent = running ? "Pause" : "Lecture"; });
+document.getElementById("restart").addEventListener("click", () => { t = 0; trail.length = 0; lastStep = -1; running = true; playBtn.textContent = "Pause"; });
+swBtn.addEventListener("click", () => {
+  closed = !closed;
+  swBtn.textContent = closed ? "Ouvrir l'interrupteur" : "Fermer l'interrupteur";
+  if (!closed) cap.innerHTML = "<b>⚠</b>Interrupteur ouvert : la boucle est coupée. Les électrons ne peuvent plus circuler, la lampe s'éteint et l'ampèremètre indique 0 A.";
+  else lastStep = -1;
+});
+document.getElementById("speed").addEventListener("input", e => { speed = +e.target.value; });
+
+if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) speed = 0.5;
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
